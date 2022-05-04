@@ -1,0 +1,44 @@
+# some rules where taken from https://gist.github.com/GhostofGoes/94580e76cd251972b15b4821c8a06f59
+
+.history
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+.ipynb_checkpoints
+
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
