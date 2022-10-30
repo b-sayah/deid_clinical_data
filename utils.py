@@ -142,3 +142,27 @@ def load_checkpoint(checkpoint, model, optimizer=None):
         optimizer.load_state_dict(checkpoint['optim_dict'])
 
     return checkpoint
+
+
+def log_sum_exp(z, dim=1):
+
+    """used for a more stable implementation and avoid a numerical precision issues,
+    especially for case of one of the exponentiated terms is lage.
+    Hence the operation should be rewritten as
+    log \sum_{i} \exp(z_i) = max(z_i) + log \sum_i \exp(z_i-max(z_i))
+    where z_i-max(z_i) will be zero or negative value, and exp of negative value is
+    small
+
+    Args:
+        z : (torch.FloatTensor)
+        dim : (int) the dimension along with the operation is applied
+
+    return:
+        z : the summed log probabilities
+
+     """
+
+    max_z, _ = torch.max(z, dim)
+    max_x = max_z.unsqueeze(dim)
+    z = max_z + torch.log(torch.sum(torch.exp(z - max_z)))
+    return z
