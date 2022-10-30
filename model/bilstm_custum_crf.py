@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from model.net import Net
 import torchcrf
-
+from utils import log_sum_exp
 
 class BiLstm_TorchCrf(Net):
     """
@@ -48,10 +48,22 @@ class BiLstm_TorchCrf(Net):
                             )
 
         # the fully connected layer transforms the output to give the final output layer
-        self.fc = nn.Linear(params.lstm_hidden_dim*2, params.number_of_tags)
+        self.fc = nn.Linear(params.lstm_hidden_dim*2, params.number_of_tags) # TO DO add and rename this parameter
         # self.crf = torchcrf.CRF(num_tags=9, batch_first=True)  # TODO softcode
         # print("="*45, "BILSTM CRF IN USE", "="*45 )
+
+        self.transitions = nn.Parameter(torch.randn(params.number_of_tags, params.number_of_tags))  # TODO check random seed
+        self.start = nn.Parameter(torch.rand(params.number_of_tags))
+        self.end = nn.Parameter(torch.rand(params.number_of_tags))
+
         self.batch_size = params.batch_size
+        self.n_tags = params.number_of_tags
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        torch.nn.init.xavier_normal_(self.transitions)
+
 
     def _bilstm_emissions_prob(self, s):
         """
@@ -69,49 +81,67 @@ class BiLstm_TorchCrf(Net):
 
         Note: the dimensions after each step are provided
         """
-        #                                -> batch_size x seq_len
+        # -> batch_size x seq_len
         # apply the embedding layer that maps each token to its embedding
         # dim: batch_size x seq_len x embedding_dim
-        print(f"\n input shape {s.shape}")
-        print(s)
         s = self.embedding(s)
-        print(f"embedding shape {s.shape}")
+
         # run the LSTM along the sentences of length seq_len
         # dim: batch_size x seq_len x lstm_hidden_dim
         s, _ = self.bilstm(s)
-        print(f"lstm out shape {s.shape}")
+
         # make the Variable contiguous in memory (a PyTorch artefact)
         s = s.contiguous()
-        print(f"contiguity shape {s.shape}")
+
         # reshape the Variable so that each row contains one token
         # dim: batch_size*seq_len x lstm_hidden_dim
         s = s.view(-1,  s.shape[2])
-        print(f"view shape mod {s.shape}")
+
         # apply the fully connected layer and obtain the output (before softmax) for each token
-        s = self.fc(s)                   # dim: batch_size*seq_len x num_tags
-        print(f"fc shape {s.shape}")
+        # dim: batch_size*seq_len x num_tags
+        s = self.fc(s)
+
         # apply log softmax on each token's output (this is recommended over applying softmax
         # since it is numerically more stable)
-        # s = F.log_softmax(s, dim=1)
-        # print(f"log softmax shape {s.shape} \n")
+        s = s.view(self.batch_size, -1, self.n_tags)
+        s = F.log_softmax(s, dim=2)  # dim=2 for torch-crf cause of additional batch size dim
 
-        # s = s.unsqueeze(-1)
-        # s = s.expand(5, 30, 9)
-        s = s.view(self.batch_size, -1, 9)
-
-        print(f"final reshape {s.shape}")
-        s = F.log_softmax(s, dim=2) # 2 for torch-crf cause of additional batch size dim
-        print(f"log softmax shape {s.shape} \n")
+        # dim: batch_size x seq_len x num_tags
+        return s
 
 
-        return s   # dim: batch_size*seq_len x num_tags
-
-
-
-    def score_sequence(self):
+    def score_sequence(self, emission_logits, tags, mask):
 
         """comupte denominator"""
+        # TODO consider reshaping / transposing ? # lines 273 to 275 in Allemnlp code
+        # TODO consider START AND END tags
+        # -- Note in that case, pass extreme values for START and END tags to Transition matrix
+        # and add both tags (with build_vocab hyperparameters) to the tags.txt, finally set indices in DataLoader
+
+        batch_size, seq_len, n_tags = emission_logits.data.shape
+
+        score = torch.zeros(1)
+        for t in range(seq_len - 1):
+
+            # compute unary logs or emission score
+            #  emit_score = logits[i].gather(1, current_tag.view(batch_size, 1)).squeeze(1)
+            unary_factor = emission_logits[t]
+
+            # compute transition score
+            # transition_score = self.transitions[current_tag.view(-1), next_tag.view(-1)]
+            pairwise_factor = self.transtitions[tags[t], tags[t+1]]
+
+            score += unary_factor * mask[t] + pairwise_factor * mask[t+1]
+
+        return score
+
+
+    def the_forward_algorithm(self, emission_logits, tags, mask):
+        """"Compute the partition function, a.k.a normalization constant using forward algorithm
+        """
+
         raise NotImplementedError
+
 
     def viterbi_decoding(self, sentence_len, n_tags):
         """"Viterbi decoding algorithm for finding the optimal tag sequence
@@ -139,19 +169,10 @@ class BiLstm_TorchCrf(Net):
         best_score = Max lattice[s, t]
         best_path = Argamx viterbi[s, t]
 
-
-
-
-
-
-        for word in N
         """
         raise NotImplementedError
 
-    def partition_function(self):
-        """"Compute the normalization constant
-        :returns the normalization constant: or partition function """
-        raise NotImplementedError
+
 
     def NLL_loss(self):
         """returns Negative log likelihood"""
@@ -167,8 +188,8 @@ class BiLstm_TorchCrf(Net):
         raise NotImplementedError
 
     def train_Bilstm_Crf(self):
-        """have to figure out how the output the forward method is used:
-        all implementations does not call it explicitly as usual in pytorch training
+        """have to figure out how the output of the forward method is used:
+        all implementations does not call it as usual in pytorch training loop
         but seems to compute directly NLL by loss = model.NLL().
         if the forward is performed under the hood, which is very likely,
         why the output is not used to compute the loss?
@@ -179,7 +200,6 @@ class BiLstm_TorchCrf(Net):
         Avoid passing true labels before forward pass
         """
         raise NotImplementedError
-
 
 
 
