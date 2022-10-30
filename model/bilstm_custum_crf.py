@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from model.net import Net
-import torchcrf
 from utils import log_sum_exp
+
 
 class BiLstm_TorchCrf(Net):
     """
@@ -64,7 +64,6 @@ class BiLstm_TorchCrf(Net):
     def reset_parameters(self):
         torch.nn.init.xavier_normal_(self.transitions)
 
-
     def _bilstm_emissions_prob(self, s):
         """
         This function defines how we use the components of our network to operate on an input batch.
@@ -109,7 +108,6 @@ class BiLstm_TorchCrf(Net):
         # dim: batch_size x seq_len x num_tags
         return s
 
-
     def score_sequence(self, emission_logits, tags, mask):
 
         """comupte denominator"""
@@ -135,13 +133,32 @@ class BiLstm_TorchCrf(Net):
 
         return score
 
-
     def the_forward_algorithm(self, emission_logits, tags, mask):
         """"Compute the partition function, a.k.a normalization constant using forward algorithm
-        """
+        see Jufrasky, and H.Martin, Speech and Language Processing,
+        appendex A, Section A.3, https://web.stanford.edu/~jurafsky/slp3/A.pdf
+        :returns the forward probability """
 
-        raise NotImplementedError
+        batch_size, seq_len, n_tags = emission_logits.data.shape
 
+        forward_prob = emission_logits[0]
+
+        for t in range(1, seq_len):
+            # TODO comment code
+
+            # broadcast the three factors along different axis adequately
+            unary_factor = emission_logits[t].view(batch_size, 1, n_tags)
+            pairwise_factor = self.transitions.view(1, n_tags, n_tags )
+            forward_prob_broadcast = forward_prob.view(batch_size, n_tags, 1)
+
+            trellis_cell = forward_prob_broadcast + pairwise_factor + unary_factor
+            # compute log_sum_exp for valid positions, otherwise pass previous log probability
+            forward_prob = torch.where(mask[t].view(batch_size, 1),
+                                       log_sum_exp(trellis_cell),
+                                       forward_prob
+                                       )
+
+        return forward_prob
 
     def viterbi_decoding(self, sentence_len, n_tags):
         """"Viterbi decoding algorithm for finding the optimal tag sequence
