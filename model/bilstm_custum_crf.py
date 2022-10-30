@@ -119,6 +119,10 @@ class BiLstm_TorchCrf(Net):
         batch_size, seq_len, n_tags = emission_logits.data.shape
 
         score = torch.zeros(1)
+
+        if mask is None:
+            mask = torch.ones(*tags.size(), dtype=torch.bool)
+
         for t in range(seq_len - 1):
 
             # compute unary logs or emission score
@@ -133,7 +137,7 @@ class BiLstm_TorchCrf(Net):
 
         return score
 
-    def the_forward_algorithm(self, emission_logits, tags, mask):
+    def the_forward_algorithm(self, emission_logits, mask):
         """"Compute the partition function, a.k.a normalization constant using forward algorithm
         see Jufrasky, and H.Martin, Speech and Language Processing,
         appendex A, Section A.3, https://web.stanford.edu/~jurafsky/slp3/A.pdf
@@ -159,6 +163,24 @@ class BiLstm_TorchCrf(Net):
                                        )
 
         return forward_prob
+
+    def NLL_loss(self, s, tags, mask):
+        """
+        compute the negtaive log likelihood
+
+        :return: NLL
+        """
+
+        if mask is None:
+            mask = torch.ones(*tags.size(), dtype=torch.bool)
+
+        emission_logits = self._bilstm_emissions_prob(s)
+        gold_score = self.score_sequence(emission_logits, tags, mask)
+
+        partition_score = self.the_forward_algorithm(emission_logits, mask)
+
+        nll = partition_score - gold_score 
+        return nll
 
     def viterbi_decoding(self, sentence_len, n_tags):
         """"Viterbi decoding algorithm for finding the optimal tag sequence
@@ -191,9 +213,7 @@ class BiLstm_TorchCrf(Net):
 
 
 
-    def NLL_loss(self):
-        """returns Negative log likelihood"""
-        raise NotImplementedError
+
 
     def forward(self, s):
         """returns best tags list """
