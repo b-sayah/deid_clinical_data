@@ -141,7 +141,7 @@ class BiLstm_TorchCrf(Net):
         forward_prob = emission_logits[0]
 
         for timestep in range(1, seq_len):
-            # TODO comment 
+            # TODO comment
             # broadcast the three factors along different axis adequately
             unary_factor = emission_logits[timestep].view(batch_size, 1, n_tags)
             pairwise_factor = self.transitions.view(1, n_tags, n_tags )
@@ -182,6 +182,18 @@ class BiLstm_TorchCrf(Net):
 
         :returns best_tag_sequence, best_score
         """
+
+        batch_size, seq_len, n_tags = emission_logits.data.shape
+        viterbi_score = self.start + emission_logits[0]
+        backpointers = []
+
+        for timestep in range(1, seq_len):
+            next_viterbi_score = viterbi_score + emission_logits[timestep] + self.transitions
+
+            best_viterbi_score, best_tag_idx = torch.max(next_viterbi_score, 1)
+
+            viterbi_score = torch.where(masks[timestep], best_viterbi_score, viterbi_score)
+            backpointers.append(best_tag_idx)
 
         raise NotImplementedError
 
