@@ -36,7 +36,7 @@ class BiLstm_TorchCrf(Net):
         super(BiLstm_TorchCrf, self).__init__(params)
 
         # the embedding takes as input the vocab_size and the embedding_dim
-        # self.embedding = nn.Embedding(params.vocab_size, params.embedding_dim)
+        self.embedding = nn.Embedding(params.vocab_size, params.embedding_dim)
 
         # the LSTM takes as input the size of its input (embedding_dim), its hidden size
         # for more details on how to use it, check out the documentation
@@ -49,8 +49,6 @@ class BiLstm_TorchCrf(Net):
 
         # the fully connected layer transforms the output to give the final output layer
         self.fc = nn.Linear(params.lstm_hidden_dim*2, params.number_of_tags) # TO DO add and rename this parameter
-        # self.crf = torchcrf.CRF(num_tags=9, batch_first=True)  # TODO softcode
-        # print("="*45, "BILSTM CRF IN USE", "="*45 )
 
         self.transitions = nn.Parameter(torch.randn(params.number_of_tags, params.number_of_tags))  # TODO check random seed
         self.start = nn.Parameter(torch.rand(params.number_of_tags))
@@ -81,31 +79,26 @@ class BiLstm_TorchCrf(Net):
         Note: the dimensions after each step are provided
         """
         # -> batch_size x seq_len
-        # apply the embedding layer that maps each token to its embedding
         # dim: batch_size x seq_len x embedding_dim
         s = self.embedding(s)
 
-        # run the LSTM along the sentences of length seq_len
         # dim: batch_size x seq_len x lstm_hidden_dim
         s, _ = self.bilstm(s)
 
         # make the Variable contiguous in memory (a PyTorch artefact)
         s = s.contiguous()
 
-        # reshape the Variable so that each row contains one token
         # dim: batch_size*seq_len x lstm_hidden_dim
         s = s.view(-1,  s.shape[2])
 
-        # apply the fully connected layer and obtain the output (before softmax) for each token
         # dim: batch_size*seq_len x num_tags
         s = self.fc(s)
-
-        # apply log softmax on each token's output (this is recommended over applying softmax
-        # since it is numerically more stable)
         s = s.view(self.batch_size, -1, self.n_tags)
-        s = F.log_softmax(s, dim=2)  # dim=2 for torch-crf cause of additional batch size dim
 
+        # dim=2 for torch-crf cause of additional batch size dim
         # dim: batch_size x seq_len x num_tags
+        s = F.log_softmax(s, dim=2)
+
         return s
 
     def score_sequence(self, emission_logits, tags, mask):
@@ -123,17 +116,17 @@ class BiLstm_TorchCrf(Net):
         if mask is None:
             mask = torch.ones(*tags.size(), dtype=torch.bool)
 
-        for t in range(seq_len - 1):
+        for timestep in range(seq_len - 1):
 
             # compute unary logs or emission score
             #  emit_score = logits[i].gather(1, current_tag.view(batch_size, 1)).squeeze(1)
-            unary_factor = emission_logits[t]
+            unary_factor = emission_logits[timestep]
 
             # compute transition score
             # transition_score = self.transitions[current_tag.view(-1), next_tag.view(-1)]
-            pairwise_factor = self.transtitions[tags[t], tags[t+1]]
+            pairwise_factor = self.transtitions[tags[timestep], tags[timestep+1]]
 
-            score += unary_factor * mask[t] + pairwise_factor * mask[t+1]
+            score += unary_factor * mask[timestep] + pairwise_factor * mask[timestep+1]
 
         return score
 
@@ -147,17 +140,16 @@ class BiLstm_TorchCrf(Net):
 
         forward_prob = emission_logits[0]
 
-        for t in range(1, seq_len):
-            # TODO comment code
-
+        for timestep in range(1, seq_len):
+            # TODO comment 
             # broadcast the three factors along different axis adequately
-            unary_factor = emission_logits[t].view(batch_size, 1, n_tags)
+            unary_factor = emission_logits[timestep].view(batch_size, 1, n_tags)
             pairwise_factor = self.transitions.view(1, n_tags, n_tags )
             forward_prob_broadcast = forward_prob.view(batch_size, n_tags, 1)
 
             trellis_cell = forward_prob_broadcast + pairwise_factor + unary_factor
             # compute log_sum_exp for valid positions, otherwise pass previous log probability
-            forward_prob = torch.where(mask[t].view(batch_size, 1),
+            forward_prob = torch.where(mask[timestep].view(batch_size, 1),
                                        log_sum_exp(trellis_cell),
                                        forward_prob
                                        )
@@ -168,7 +160,7 @@ class BiLstm_TorchCrf(Net):
         """
         compute the negtaive log likelihood
 
-        :return: NLL
+        :return: Negative log liklihood
         """
 
         if mask is None:
@@ -179,40 +171,19 @@ class BiLstm_TorchCrf(Net):
 
         partition_score = self.the_forward_algorithm(emission_logits, mask)
 
-        nll = partition_score - gold_score 
+        nll = partition_score - gold_score
         return nll
 
-    def viterbi_decoding(self, sentence_len, n_tags):
+    def viterbi_decoding(self, emission_logits, masks, sentence_len, n_tags):
         """"Viterbi decoding algorithm for finding the optimal tag sequence
         :param
         sentence_len : observation of len T
         n_tags : states of len N
 
         :returns best_tag_sequence, best_score
-
-        pseudocode notes:
-        lattice[N, T] a sequence probability matrix
-        for s (or tag) in N:
-            lattice[s,1] = start_prob * observation_likelihood (or emission prob)
-            backpointer[s, 1] = 0
-
-
-        for w (or word) in range[2, T]:
-            for s in N:
-                lattice[s, t] = Max (lattice[s_previous, t-1] * observation_likelihood * pairwise_potential)
-                backpointer[s, t] = Argmax (lattice[s_previous, t-1] * observation_likelihood * pairwise_potential)
-                # line above is for HMM Need to check changes to linear chainCRF
-                # according to Jufrasky book Ch.8 pp. 20 see eq. 8.33 for more details
-                # v_t(s) = max_{1}^{N} v_{t-1}(i) * sum_{1}^{K} (w_kf_k(y_{t-1}, y_t, X, t)
-
-        best_score = Max lattice[s, t]
-        best_path = Argamx viterbi[s, t]
-
         """
+
         raise NotImplementedError
-
-
-
 
 
     def forward(self, s):
@@ -220,23 +191,7 @@ class BiLstm_TorchCrf(Net):
 
         return self._bilstm_emissions_prob(s)
 
-    def forward_alg(self):
-        """dynamic programming to compute alphas ?? """
-        raise NotImplementedError
 
-    def train_Bilstm_Crf(self):
-        """have to figure out how the output of the forward method is used:
-        all implementations does not call it as usual in pytorch training loop
-        but seems to compute directly NLL by loss = model.NLL().
-        if the forward is performed under the hood, which is very likely,
-        why the output is not used to compute the loss?
-        TBS, one should consider that the loss is backprobagated though these parameters
-
-        https://twitter.com/karpathy/status/904808674845007872
-        exlanation of the way model is used in training.
-        Avoid passing true labels before forward pass
-        """
-        raise NotImplementedError
 
 
 
