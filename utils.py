@@ -163,6 +163,6 @@ def log_sum_exp(z, dim=1):
      """
 
     max_z, _ = torch.max(z, dim)
-    max_x = max_z.unsqueeze(dim)
+    max_z = max_z.unsqueeze(dim)
     z = max_z + torch.log(torch.sum(torch.exp(z - max_z)))
     return z
