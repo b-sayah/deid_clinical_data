@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from model.net import Net
-import torchcrf
 
 
 class BiLstm_TorchCrf(Net):
@@ -49,9 +48,9 @@ class BiLstm_TorchCrf(Net):
 
         # the fully connected layer transforms the output to give the final output layer
         self.fc = nn.Linear(params.lstm_hidden_dim*2, params.number_of_tags)
-        # self.crf = torchcrf.CRF(num_tags=9, batch_first=True)  # TODO softcode
-        # print("="*45, "BILSTM CRF IN USE", "="*45 )
+
         self.batch_size = params.batch_size
+        self.n_tags = params.number_of_tags
 
     def _bilstm_emissions_prob(self, s):
         """
@@ -85,7 +84,7 @@ class BiLstm_TorchCrf(Net):
         s = self.fc(s)                   # dim: batch_size*seq_len x num_tags
         # apply log softmax on each token's output (this is recommended over applying softmax
         # since it is numerically more stable)
-        s = s.view(self.batch_size, -1, 9)
+        s = s.view(self.batch_size, -1, self.n_tags) # TODO pass num tags as args
 
         return F.log_softmax(s, dim=2)  # dim: batch_size*seq_len x num_tags
 
