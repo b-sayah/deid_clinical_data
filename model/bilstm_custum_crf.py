@@ -41,16 +41,17 @@ class BiLstm_TorchCrf(Net):
         # the LSTM takes as input the size of its input (embedding_dim), its hidden size
         # for more details on how to use it, check out the documentation
         self.bilstm = nn.LSTM(params.embedding_dim,
-                            params.lstm_hidden_dim,
-                            batch_first=True,
-                            bidirectional=True,
-                            num_layers=2
-                            )
+                              params.lstm_hidden_dim,
+                              batch_first=True,
+                              bidirectional=True,
+                              num_layers=2
+                              )
 
         # the fully connected layer transforms the output to give the final output layer
-        self.fc = nn.Linear(params.lstm_hidden_dim*2, params.number_of_tags) # TO DO add and rename this parameter
+        self.fc = nn.Linear(params.lstm_hidden_dim * 2, params.number_of_tags)  # TO DO add and rename this parameter
 
-        self.transitions = nn.Parameter(torch.randn(params.number_of_tags, params.number_of_tags))  # TODO check random seed
+        self.transitions = nn.Parameter(
+            torch.randn(params.number_of_tags, params.number_of_tags))  # TODO check random seed
         self.start = nn.Parameter(torch.rand(params.number_of_tags))
         self.end = nn.Parameter(torch.rand(params.number_of_tags))
 
@@ -89,7 +90,7 @@ class BiLstm_TorchCrf(Net):
         s = s.contiguous()
 
         # dim: batch_size*seq_len x lstm_hidden_dim
-        s = s.view(-1,  s.shape[2])
+        s = s.view(-1, s.shape[2])
 
         # dim: batch_size*seq_len x num_tags
         s = self.fc(s)
@@ -117,16 +118,15 @@ class BiLstm_TorchCrf(Net):
             mask = torch.ones(*tags.size(), dtype=torch.bool)
 
         for timestep in range(seq_len - 1):
-
             # compute unary logs or emission score
             #  emit_score = logits[i].gather(1, current_tag.view(batch_size, 1)).squeeze(1)
             unary_factor = emission_logits[timestep]
 
             # compute transition score
             # transition_score = self.transitions[current_tag.view(-1), next_tag.view(-1)]
-            pairwise_factor = self.transtitions[tags[timestep], tags[timestep+1]]
+            pairwise_factor = self.transtitions[tags[timestep], tags[timestep + 1]]
 
-            score += unary_factor * mask[timestep] + pairwise_factor * mask[timestep+1]
+            score += unary_factor * mask[timestep] + pairwise_factor * mask[timestep + 1]
 
         return score
 
@@ -144,7 +144,7 @@ class BiLstm_TorchCrf(Net):
             # TODO comment
             # broadcast the three factors along different axis adequately
             unary_factor = emission_logits[timestep].view(batch_size, 1, n_tags)
-            pairwise_factor = self.transitions.view(1, n_tags, n_tags )
+            pairwise_factor = self.transitions.view(1, n_tags, n_tags)
             forward_prob_broadcast = forward_prob.view(batch_size, n_tags, 1)
 
             trellis_cell = forward_prob_broadcast + pairwise_factor + unary_factor
@@ -188,6 +188,7 @@ class BiLstm_TorchCrf(Net):
         backpointers = []
 
         for timestep in range(1, seq_len):
+            # TODO broadcast when necessary
             next_viterbi_score = viterbi_score + emission_logits[timestep] + self.transitions
 
             best_viterbi_score, best_tag_idx = torch.max(next_viterbi_score, 1)
@@ -195,17 +196,25 @@ class BiLstm_TorchCrf(Net):
             viterbi_score = torch.where(masks[timestep], best_viterbi_score, viterbi_score)
             backpointers.append(best_tag_idx)
 
-        raise NotImplementedError
+        viterbi_score = viterbi_score + self.end
 
+        best_path, best_paths, best_viterbi_scores = [], [], []
+
+        for batch in range(self.batch_size):
+            best_viterbi_score, best_tag_idx = torch.max(viterbi_score[batch],
+                                                         dim=0)  # TODO check if best_viterbi score is valid
+            best_path.append(best_tag_idx.item())
+
+            for bk_point in reversed(backpointers):
+                best_tag_idx = bk_point[batch][best_tag_idx.item()]
+                best_path.append(best_tag_idx)
+
+            best_paths.append(best_path.reverse())
+            best_viterbi_scores.append(best_viterbi_score)
+
+        return best_viterbi_scores, best_paths
 
     def forward(self, s):
         """returns best tags list """
 
         return self._bilstm_emissions_prob(s)
-
-
-
-
-
-
-
