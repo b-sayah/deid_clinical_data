@@ -174,7 +174,7 @@ class BiLstm_TorchCrf(Net):
         nll = partition_score - gold_score
         return nll
 
-    def viterbi_decoding(self, emission_logits, masks, sentence_len, n_tags):
+    def viterbi_decoding(self, emission_logits, masks=None): # TODO handle masks
         """"Viterbi decoding algorithm for finding the optimal tag sequence
         :param
         sentence_len : observation of len T
@@ -214,7 +214,8 @@ class BiLstm_TorchCrf(Net):
 
         return best_viterbi_scores, best_paths
 
-    def forward(self, s):
+    def forward(self, emission_logits, masks=None):
         """returns best tags list """
+        logits = self._bilstm_emissions_prob(emission_logits)
 
-        return self._bilstm_emissions_prob(s)
+        return self._viterbi_decoding(logits, masks)
